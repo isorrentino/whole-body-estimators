@@ -2087,40 +2087,42 @@ void WholeBodyDynamicsDevice::readSensors()
     }
 
     // At the moment we are assuming that all joints are revolute
-
-    if( settings.useJointVelocity )
+    if ( !settings.estimateJointVelocityAcceleration )
     {
-        ok = remappedControlBoardInterfaces.encs->getEncoderSpeeds(jointVel.data());
-        sensorReadCorrectly = sensorReadCorrectly && ok;
-        if( !ok )
+        if( settings.useJointVelocity )
         {
-            yWarning() << "wholeBodyDynamics warning : joint velocities was not readed correctly";
+            ok = remappedControlBoardInterfaces.encs->getEncoderSpeeds(jointVel.data());
+            sensorReadCorrectly = sensorReadCorrectly && ok;
+            if( !ok )
+            {
+                yWarning() << "wholeBodyDynamics warning : joint velocities was not readed correctly";
+            }
+
+            // Convert from degrees (used on wire by YARP) to radians (used by iDynTree)
+            convertVectorFromDegreesToRadians(jointVel);
+        }
+        else
+        {
+            jointVel.zero();
         }
 
-        // Convert from degrees (used on wire by YARP) to radians (used by iDynTree)
-        convertVectorFromDegreesToRadians(jointVel);
-    }
-    else
-    {
-        jointVel.zero();
-    }
-
-    if( settings.useJointAcceleration )
-    {
-        ok = remappedControlBoardInterfaces.encs->getEncoderAccelerations(jointAcc.data());
-        sensorReadCorrectly = sensorReadCorrectly && ok;
-        if( !ok )
+        if( settings.useJointAcceleration )
         {
-            yWarning() << "wholeBodyDynamics warning : joint accelerations was not readed correctly";
+            ok = remappedControlBoardInterfaces.encs->getEncoderAccelerations(jointAcc.data());
+            sensorReadCorrectly = sensorReadCorrectly && ok;
+            if( !ok )
+            {
+                yWarning() << "wholeBodyDynamics warning : joint accelerations was not readed correctly";
+            }
+
+            // Convert from degrees (used on wire by YARP) to radians (used by iDynTree)
+            convertVectorFromDegreesToRadians(jointAcc);
+
         }
-
-        // Convert from degrees (used on wire by YARP) to radians (used by iDynTree)
-        convertVectorFromDegreesToRadians(jointAcc);
-
-    }
-    else
-    {
-        jointAcc.zero();
+        else
+        {
+            jointAcc.zero();
+        }
     }
 
     // Read F/T sensors
@@ -2165,26 +2167,6 @@ void WholeBodyDynamicsDevice::filterSensorsAndRemoveSensorOffsets()
         filteredSensorMeasurements.setMeasurement(iDynTree::SIX_AXIS_FORCE_TORQUE,ft,filteredFTMeasure);
     }
 
-    // Filter joint vel
-    if( settings.useJointVelocity )
-    {
-        iDynTree::toYarp(jointVel,filters.bufferYarpDofs);
-
-        const yarp::sig::Vector & outputJointVel = filters.jntVelFilter->filt(filters.bufferYarpDofs);
-
-        iDynTree::toiDynTree(outputJointVel,jointVel);
-    }
-
-    // Filter joint acc
-    if( settings.useJointAcceleration )
-    {
-        iDynTree::toYarp(jointAcc,filters.bufferYarpDofs);
-
-        const yarp::sig::Vector & outputJointAcc = filters.jntAccFilter->filt(filters.bufferYarpDofs);
-
-        iDynTree::toiDynTree(outputJointAcc,jointAcc);
-    }
-
     // Estimate joint velocity and acceleration
     if( settings.estimateJointVelocityAcceleration )
     {
@@ -2210,6 +2192,28 @@ void WholeBodyDynamicsDevice::filterSensorsAndRemoveSensorOffsets()
 
         iDynTree::toEigen(jointVel) = iDynTree::toEigen(kfState).segment(estimator.model().getNrOfDOFs(),estimator.model().getNrOfDOFs());
         iDynTree::toEigen(jointAcc) = iDynTree::toEigen(kfState).tail(estimator.model().getNrOfDOFs());
+    }
+    else
+    {
+        // Filter joint vel
+        if( settings.useJointVelocity )
+        {
+            iDynTree::toYarp(jointVel,filters.bufferYarpDofs);
+
+            const yarp::sig::Vector & outputJointVel = filters.jntVelFilter->filt(filters.bufferYarpDofs);
+
+            iDynTree::toiDynTree(outputJointVel,jointVel);
+        }
+
+        // Filter joint acc
+        if( settings.useJointAcceleration )
+        {
+            iDynTree::toYarp(jointAcc,filters.bufferYarpDofs);
+
+            const yarp::sig::Vector & outputJointAcc = filters.jntAccFilter->filt(filters.bufferYarpDofs);
+
+            iDynTree::toiDynTree(outputJointAcc,jointAcc);
+        }
     }
 
     // Filter IMU Sensor
