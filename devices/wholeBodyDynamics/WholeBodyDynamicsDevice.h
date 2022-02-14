@@ -22,6 +22,7 @@
 #include <iDynTree/Estimation/ExtWrenchesAndJointTorquesEstimator.h>
 #include <iDynTree/skinDynLibConversions.h>
 #include <iDynTree/KinDynComputations.h>
+#include <iDynTree/Estimation/KalmanFilter.h>
 
 // Filters
 #include "ctrlLibRT/filters.h"
@@ -59,6 +60,11 @@ struct outputWrenchPortInformation
 
 class wholeBodyDynamicsDeviceFilters
 {
+    private:
+
+    bool initKalmanFilter(iDynTree::DiscreteKalmanFilterHelper *kf, double periodInSeconds, int nrOfDOFsProcessed);
+
+
     public:
 
     wholeBodyDynamicsDeviceFilters();
@@ -78,6 +84,7 @@ class wholeBodyDynamicsDeviceFilters
                                double cutOffForIMUInHz,
                                double cutOffForJointVelInHz,
                                double cutOffForJointAccInHz);
+
     /**
      * Deallocate the filters
      */
@@ -100,6 +107,9 @@ class wholeBodyDynamicsDeviceFilters
 
     ///< low pass filter for Joint accelerations
     iCub::ctrl::realTime::FirstOrderLowPassFilter * jntAccFilter;
+
+    ///< KF filter for Joint velocity and accelerations
+    iDynTree::DiscreteKalmanFilterHelper * jntVelAccKFFilter;
 
     ///< Yarp vector buffer of dimension 3
     yarp::sig::Vector bufferYarp3;
@@ -594,6 +604,10 @@ private:
        * Set if to use or not the joint velocities in estimation.
        */
       virtual bool setUseOfJointAccelerations(const bool enable);
+      /**
+      * Set if to estimate or not the joint velocities and acceleration.
+      */
+      virtual bool setUseOfJointVelocityAccelerationEstimation(const bool enable);
       /**
        * Get the current settings in the form of a string.
        * @return the current settings as a human readable string.
