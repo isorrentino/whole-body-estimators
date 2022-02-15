@@ -10,7 +10,6 @@
         <param name="imuFrameName">imu_frame</param>
         <param name="useJointVelocity">true</param>
         <param name="useJointAcceleration">true</param>
-        <param name="estimateJointVelocityAcceleration">true</param>
         <param name="imuFilterCutoffInHz">3.0</param>
         <param name="forceTorqueFilterCutoffInHz">3.0</param>
         <param name="jointVelFilterCutoffInHz">3.0</param> <!-- used if useJointVelocity is set to true -->
@@ -19,6 +18,14 @@
         <param name="useSkinForContacts">true</param> <!-- bypass handling skinDynLib for robots without skin -->
         <param name="publishNetExternalWrenches">true</param>
         <param name="devicePeriodInSeconds">0.01</param>
+        <param name="estimateJointVelocityAcceleration">true</param>  <!-- if true a kf will estimate the joint velocities and accelerations -->
+        <param name="processNoiseCovariance">(5.0e-4, 5.0e-4, 5.0e-4, 5.0e-4, 5.0e-4, 5.0e-4, 5.0e-4, 5.0e-4, 5.0e-4, 5.0e-4, 5.0e-4, 5.0e-4, 5.0e-4,
+                                              5.0e-4, 5.0e-4, 5.0e-4, 5.0e-4, 5.0e-4, 5.0e-4, 5.0e-4, 5.0e-4, 5.0e-4, 5.0e-4, 5.0e-4, 5.0e-4, 5.0e-4,
+                                              1.0e-3, 1.0e-3, 1.0e-3, 1.0e-3, 1.0e-3, 1.0e-3, 1.0e-3, 1.0e-3, 1.0e-3, 1.0e-3, 1.0e-3, 1.0e-3, 1.0e-3,
+                                              1.0e-3, 1.0e-3, 1.0e-3, 1.0e-3, 1.0e-3, 1.0e-3, 1.0e-3, 1.0e-3, 1.0e-3, 1.0e-3, 1.0e-3, 1.0e-3, 1.0e-3,
+                                              1.0e-1, 1.0e-1, 1.0e-1, 1.0e-1, 1.0e-1, 1.0e-1, 1.0e-1, 1.0e-1, 1.0e-1, 1.0e-1, 1.0e-1, 1.0e-1, 1.0e-1,
+                                              1.0e-1, 1.0e-1, 1.0e-1, 1.0e-1, 1.0e-1, 1.0e-1, 1.0e-1, 1.0e-1, 1.0e-1, 1.0e-1, 1.0e-1, 1.0e-1, 1.0e-1)</param>
+        <param name="measurementNoiseCovariance">(1.0e-6, 1.0e-6, 1.0e-6, 1.0e-6, 1.0e-6, 1.0e-6, 1.0e-6, 1.0e-6, 1.0e-6, 1.0e-6, 1.0e-6, 1.0e-6, 1.0e-6)</param>
 
         <!-- map between iDynTree links (identified by a name)
              and skinDynLib links (identified by their frame name, a BodyPart enum

@@ -176,6 +176,35 @@ bool getConfigParamsAsList(os::Searchable& config,std::string propertyName , std
     return true;
 }
 
+bool getConfigParamsAsList(const yarp::os::Searchable& config,std::string propertyName , iDynTree::VectorDynSize & list, bool isRequired)
+{
+    yarp::os::Property prop;
+    prop.fromString(config.toString().c_str());
+    yarp::os::Bottle *propNames=prop.find(propertyName).asList();
+    if(propNames==nullptr)
+    {
+        if(isRequired)
+        {
+            yError() <<"WholeBodyDynamicsDevice: Error parsing parameters: \" "<<propertyName<<" \" should be followed by a list\n";
+        }
+        return false;
+    }
+
+    list.resize(propNames->size());
+    for(auto elem=0u; elem < propNames->size(); elem++)
+    {
+        const auto value = propNames->get(elem);
+        if( !value.isFloat64() && !value.isInt32() )
+        {
+            yError() << "WholeBodyDynamicsDevice: Error parsing parameters: \" "<<propertyName<<" \". Expected double or integer array.\n";
+            return false;
+        }
+        list(elem) = value.asFloat64();
+    }
+
+    return true;
+}
+
 bool getUsedDOFsList(os::Searchable& config, std::vector<std::string> & usedDOFs)
 {
     bool required{true};
@@ -193,7 +222,6 @@ bool getGravityCompensationDOFsList(os::Searchable& config, std::vector<std::str
     bool required{true};
     return getConfigParamsAsList(config,"gravityCompensationAxesNames",gravityCompensationDOFs, required);
 }
-
 
 bool WholeBodyDynamicsDevice::openRemapperControlBoard(os::Searchable& config)
 {
@@ -1433,6 +1461,18 @@ bool WholeBodyDynamicsDevice::open(os::Searchable& config)
     // resize internal buffers
     this->resizeBuffers();
 
+    // initialize kalman filter
+    if(settings.estimateJointVelocityAcceleration)
+    {
+        filters.jntVelAccKFFilter = new iDynTree::DiscreteKalmanFilterHelper();
+
+        if( !filters.initKalmanFilter(config, filters.jntVelAccKFFilter, getPeriod(), estimator.model().getNrOfDOFs()))
+        {
+            yError() << "wholeBodyDynamics: unable to init kalman filter.";
+            return false;
+        }
+    }
+
     // Open settings related to gravity compensation (we need the estimator to be open)
     ok = this->loadGravityCompensationSettingsFromConfig(config);
     if( !ok )
@@ -1589,6 +1629,8 @@ bool WholeBodyDynamicsDevice::open(os::Searchable& config)
     }
 
     yDebug() << "wholeBodyDynamics Statistics: Configuration finished. Waiting attachAll to be called.";
+
+    portLog.open("/WBDLogger");
 
     return true;
 }
@@ -2087,9 +2129,9 @@ void WholeBodyDynamicsDevice::readSensors()
     }
 
     // At the moment we are assuming that all joints are revolute
-    if ( !settings.estimateJointVelocityAcceleration )
+    if( settings.useJointVelocity )
     {
-        if( settings.useJointVelocity )
+        if ( !settings.estimateJointVelocityAcceleration )
         {
             ok = remappedControlBoardInterfaces.encs->getEncoderSpeeds(jointVel.data());
             sensorReadCorrectly = sensorReadCorrectly && ok;
@@ -2101,12 +2143,15 @@ void WholeBodyDynamicsDevice::readSensors()
             // Convert from degrees (used on wire by YARP) to radians (used by iDynTree)
             convertVectorFromDegreesToRadians(jointVel);
         }
-        else
-        {
-            jointVel.zero();
-        }
+    }
+    else
+    {
+        jointVel.zero();
+    }
 
-        if( settings.useJointAcceleration )
+    if( settings.useJointAcceleration )
+    {
+        if ( !settings.estimateJointVelocityAcceleration )
         {
             ok = remappedControlBoardInterfaces.encs->getEncoderAccelerations(jointAcc.data());
             sensorReadCorrectly = sensorReadCorrectly && ok;
@@ -2117,12 +2162,11 @@ void WholeBodyDynamicsDevice::readSensors()
 
             // Convert from degrees (used on wire by YARP) to radians (used by iDynTree)
             convertVectorFromDegreesToRadians(jointAcc);
-
         }
-        else
-        {
-            jointAcc.zero();
-        }
+    }
+    else
+    {
+        jointAcc.zero();
     }
 
     // Read F/T sensors
@@ -2190,8 +2234,15 @@ void WholeBodyDynamicsDevice::filterSensorsAndRemoveSensorOffsets()
 
         filters.jntVelAccKFFilter->kfGetStates(kfState);
 
-        iDynTree::toEigen(jointVel) = iDynTree::toEigen(kfState).segment(estimator.model().getNrOfDOFs(),estimator.model().getNrOfDOFs());
-        iDynTree::toEigen(jointAcc) = iDynTree::toEigen(kfState).tail(estimator.model().getNrOfDOFs());
+        if( settings.useJointVelocity )
+        {
+            iDynTree::toEigen(jointVel) = iDynTree::toEigen(kfState).segment(estimator.model().getNrOfDOFs(),estimator.model().getNrOfDOFs());
+        }
+
+        if( settings.useJointAcceleration )
+        {
+            iDynTree::toEigen(jointAcc) = iDynTree::toEigen(kfState).tail(estimator.model().getNrOfDOFs());
+        }
     }
     else
     {
@@ -2771,6 +2822,12 @@ void WholeBodyDynamicsDevice::run()
 
         // Publish estimated quantities
         this->publishEstimatedQuantities();
+
+        auto & data = portLog.prepare();
+        data.vectors.clear();
+        data.vectors["wbd::kf::velocity"].assign(jointVel.data(), jointVel.data() + jointVel.size());
+        data.vectors["wbd::kf::acceleration"].assign(jointAcc.data(), jointAcc.data() + jointAcc.size());
+        portLog.write();
     }
 }
 
@@ -3365,7 +3422,28 @@ wholeBodyDynamicsDeviceFilters::wholeBodyDynamicsDeviceFilters(): imuLinearAccel
 
 }
 
-bool wholeBodyDynamicsDeviceFilters::initKalmanFilter(iDynTree::DiscreteKalmanFilterHelper *kf, double periodInSeconds, int nrOfDOFsProcessed)
+bool wholeBodyDynamicsDeviceFilters::initCovarianceMatrix(const yarp::os::Searchable &config, std::string parameterName, iDynTree::MatrixDynSize & matrix)
+{
+    iDynTree::VectorDynSize covariances;
+    if(!getConfigParamsAsList(config, parameterName, covariances, true))
+    {
+        yError() << " wholeBodyDynamics : covariance vector not valid. ";
+        return false;
+    }
+
+    if( (matrix.cols() != matrix.rows()) || (covariances.size() != matrix.cols()) )
+    {
+        yError() << " wholeBodyDynamics : size of covariance vector does not match covariance matrix size. Expected " << matrix.cols() << " . Read " << covariances.size();
+        return false;
+    }
+
+    matrix.zero();
+    iDynTree::toEigen(matrix).diagonal() = iDynTree::toEigen(covariances);
+
+    return true;
+}
+
+bool wholeBodyDynamicsDeviceFilters::initKalmanFilter(const yarp::os::Searchable &config, iDynTree::DiscreteKalmanFilterHelper *kf, double periodInSeconds, int nrOfDOFsProcessed)
 {
     // Pure kinematic kalman filter
     // state space is joint positions, velocitues and accelerations.
@@ -3373,8 +3451,7 @@ bool wholeBodyDynamicsDeviceFilters::initKalmanFilter(iDynTree::DiscreteKalmanFi
     // x{k+1} = A x{k}
     // y{k}   = C x{k}
 
-    iDynTree::MatrixDynSize A;
-    A.resize(3*nrOfDOFsProcessed, 3*nrOfDOFsProcessed);
+    iDynTree::MatrixDynSize A(3*nrOfDOFsProcessed, 3*nrOfDOFsProcessed);
     A.zero();
     for (int i = 0; i < nrOfDOFsProcessed; i++)
     {
@@ -3389,12 +3466,32 @@ bool wholeBodyDynamicsDeviceFilters::initKalmanFilter(iDynTree::DiscreteKalmanFi
     }
 
     // noisy measurement of the truck is made at each step without any feedthrough
-    iDynTree::MatrixDynSize C;
-    C.resize(nrOfDOFsProcessed, 3*nrOfDOFsProcessed);
+    iDynTree::MatrixDynSize C(nrOfDOFsProcessed, 3*nrOfDOFsProcessed);
     C.zero();
     for (int i = 0; i < nrOfDOFsProcessed; i++)
     {
         C(i, i) = 1;
+    }
+
+    iDynTree::MatrixDynSize Q(3*nrOfDOFsProcessed,3*nrOfDOFsProcessed);
+    if(!this->initCovarianceMatrix(config, "processNoiseCovariance", Q))
+    {
+        yError() << " wholeBodyDynamics : failed to set process noise covariance matrix. ";
+        return false;
+    }
+
+    iDynTree::MatrixDynSize R(nrOfDOFsProcessed,nrOfDOFsProcessed);
+    if(!this->initCovarianceMatrix(config, "measurementNoiseCovariance", R))
+    {
+        yError() << " wholeBodyDynamics : failed to set measurement noise covariance matrix. ";
+        return false;
+    }
+
+    iDynTree::MatrixDynSize P0(3*nrOfDOFsProcessed,3*nrOfDOFsProcessed);
+    if(!this->initCovarianceMatrix(config, "stateCovariance", P0))
+    {
+        yError() << " wholeBodyDynamics : failed to set initial state covariance matrix. ";
+        return false;
     }
 
     if (!kf->constructKalmanFilter(A, C))
@@ -3403,28 +3500,10 @@ bool wholeBodyDynamicsDeviceFilters::initKalmanFilter(iDynTree::DiscreteKalmanFi
         return false;
     }
 
-    iDynTree::MatrixDynSize Q;
-    Q.resize(3*nrOfDOFsProcessed, 3*nrOfDOFsProcessed);
-    Q.zero();
-    for (int i = 0; i < nrOfDOFsProcessed; i++)
+    bool ok = kf->kfSetSystemNoiseCovariance(Q) && kf->kfSetMeasurementNoiseCovariance(R) && kf->kfSetStateCovariance(P0);
+    if(!ok)
     {
-        Q(i, i) = 5.0e-4;
-        Q(i+nrOfDOFsProcessed, i+nrOfDOFsProcessed) = 1.0e-1;
-        Q(i+2*nrOfDOFsProcessed, i+2*nrOfDOFsProcessed) = 1.0;
-    }
-    if (!kf->kfSetSystemNoiseCovariance(Q))
-    {
-        yError() << " wholeBodyDynamics : System noise covariance matrix cannot be set. ";
-        return false;
-    }
-
-    iDynTree::MatrixDynSize R;
-    R.resize(nrOfDOFsProcessed, nrOfDOFsProcessed);
-    double measCov = 1e-10;
-    iDynTree::toEigen(R) = measCov * Eigen::MatrixXd::Identity(nrOfDOFsProcessed,nrOfDOFsProcessed);
-    if (!kf->kfSetMeasurementNoiseCovariance(R))
-    {
-        yError() << " wholeBodyDynamics : Measurement noise covariance matrix cannot be set. ";
+        yError() << " wholeBodyDynamics : unable to initialize the kf covariances. ";
         return false;
     }
 
@@ -3437,21 +3516,13 @@ bool wholeBodyDynamicsDeviceFilters::initKalmanFilter(iDynTree::DiscreteKalmanFi
         return false;
     }
 
-    iDynTree::MatrixDynSize P0;
-    P0.resize(nrOfDOFsProcessed*3, nrOfDOFsProcessed*3);
-    double state_var{1.0};
-    iDynTree::toEigen(P0) = state_var*Eigen::MatrixXd::Identity(3*nrOfDOFsProcessed, 3*nrOfDOFsProcessed);
-    if (!kf->kfSetStateCovariance(P0))
-    {
-        yError() << " wholeBodyDynamics : Impossible to set initial state covariance. ";
-        return false;
-    }
-
     if (!kf->kfInit())
     {
         yError() << " wholeBodyDynamics : Impossible to initialize kalman fitler. ";
         return false;
     }
+
+    return true;
 }
 
 void wholeBodyDynamicsDeviceFilters::init(int nrOfFTSensors,
@@ -3483,9 +3554,6 @@ void wholeBodyDynamicsDeviceFilters::init(int nrOfFTSensors,
         new iCub::ctrl::realTime::FirstOrderLowPassFilter(initialCutOffForJointVelInHz,periodInSeconds,bufferYarpDofs);
     jntAccFilter =
         new iCub::ctrl::realTime::FirstOrderLowPassFilter(initialCutOffForJointAccInHz,periodInSeconds,bufferYarpDofs);
-
-    jntVelAccKFFilter = new iDynTree::DiscreteKalmanFilterHelper();
-    this->initKalmanFilter(jntVelAccKFFilter, periodInSeconds, nrOfDOFsProcessed);
 }
 
 

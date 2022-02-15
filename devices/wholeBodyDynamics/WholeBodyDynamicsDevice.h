@@ -32,6 +32,8 @@
 #include "SixAxisForceTorqueMeasureHelpers.h"
 #include "GravityCompensationHelpers.h"
 
+#include <BipedalLocomotion/YarpUtilities/VectorsCollection.h>
+
 #include <vector>
 #include <mutex>
 
@@ -62,8 +64,7 @@ class wholeBodyDynamicsDeviceFilters
 {
     private:
 
-    bool initKalmanFilter(iDynTree::DiscreteKalmanFilterHelper *kf, double periodInSeconds, int nrOfDOFsProcessed);
-
+    bool initCovarianceMatrix(const yarp::os::Searchable &config, std::string parameterName, iDynTree::MatrixDynSize & matrix);
 
     public:
 
@@ -89,6 +90,8 @@ class wholeBodyDynamicsDeviceFilters
      * Deallocate the filters
      */
     void fini();
+
+    bool initKalmanFilter(const yarp::os::Searchable &config, iDynTree::DiscreteKalmanFilterHelper *kf, double periodInSeconds, int nrOfDOFsProcessed);
 
 
     ~wholeBodyDynamicsDeviceFilters();
@@ -142,6 +145,8 @@ class WholeBodyDynamicsDevice :  public yarp::dev::DeviceDriver,
     };
 
 private:
+    yarp::os::BufferedPort<BipedalLocomotion::YarpUtilities::VectorsCollection> portLog;
+
     /**
      * Port prefix used for all the ports opened by wholeBodyDynamics.
      */
