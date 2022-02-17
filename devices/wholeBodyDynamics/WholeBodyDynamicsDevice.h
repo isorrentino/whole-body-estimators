@@ -385,6 +385,9 @@ private:
      */
     iDynTree::ExtWrenchesAndJointTorquesEstimator estimator;
 
+    // TODELETE
+    iDynTree::ExtWrenchesAndJointTorquesEstimator estimator_dummy;
+
     /**
      * Buffers related methods
      */

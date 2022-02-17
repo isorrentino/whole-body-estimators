@@ -332,6 +332,8 @@ bool WholeBodyDynamicsDevice::openEstimator(os::Searchable& config)
     }
 
     ok = estimator.loadModelAndSensorsFromFileWithSpecifiedDOFs(modelFileFullPath,estimationJointNames);
+    // TODELETE
+    estimator_dummy.loadModelAndSensorsFromFileWithSpecifiedDOFs(modelFileFullPath,estimationJointNames);
     if( !ok )
     {
         yInfo() << "wholeBodyDynamics : impossible to create ExtWrenchesAndJointTorquesEstimator from file "
@@ -2217,12 +2219,18 @@ void WholeBodyDynamicsDevice::filterSensorsAndRemoveSensorOffsets()
         iDynTree::VectorDynSize kfState;
         kfState.resize(estimator.model().getNrOfDOFs());
 
+        iDynTree::VectorDynSize measurement;
+        measurement.resize(estimator.model().getNrOfDOFs()*2);
+
+        iDynTree::toEigen(measurement).head(estimator.model().getNrOfDOFs()) = iDynTree::toEigen(jointPos);
+        iDynTree::toEigen(measurement).tail(estimator.model().getNrOfDOFs()) = iDynTree::toEigen(jointVel);
+
         if (!filters.jntVelAccKFFilter->kfPredict())
         {
             yError() << " wholeBodyDynamics : kf predict step failed ";
         }
 
-        if (!filters.jntVelAccKFFilter->kfSetMeasurementVector(jointPos))
+        if (!filters.jntVelAccKFFilter->kfSetMeasurementVector(measurement))
         {
             yError() << " wholeBodyDynamics : kf cannot set measurement ";
         }
@@ -3466,12 +3474,10 @@ bool wholeBodyDynamicsDeviceFilters::initKalmanFilter(const yarp::os::Searchable
     }
 
     // noisy measurement of the truck is made at each step without any feedthrough
-    iDynTree::MatrixDynSize C(nrOfDOFsProcessed, 3*nrOfDOFsProcessed);
+    iDynTree::MatrixDynSize C(2*nrOfDOFsProcessed, 3*nrOfDOFsProcessed);
     C.zero();
-    for (int i = 0; i < nrOfDOFsProcessed; i++)
-    {
-        C(i, i) = 1;
-    }
+    iDynTree::toEigen(C).topLeftCorner(nrOfDOFsProcessed,nrOfDOFsProcessed).setIdentity();
+    iDynTree::toEigen(C).block(nrOfDOFsProcessed,nrOfDOFsProcessed,nrOfDOFsProcessed,nrOfDOFsProcessed).setIdentity();
 
     iDynTree::MatrixDynSize Q(3*nrOfDOFsProcessed,3*nrOfDOFsProcessed);
     if(!this->initCovarianceMatrix(config, "processNoiseCovariance", Q))
@@ -3480,7 +3486,7 @@ bool wholeBodyDynamicsDeviceFilters::initKalmanFilter(const yarp::os::Searchable
         return false;
     }
 
-    iDynTree::MatrixDynSize R(nrOfDOFsProcessed,nrOfDOFsProcessed);
+    iDynTree::MatrixDynSize R(nrOfDOFsProcessed*2,nrOfDOFsProcessed*2);
     if(!this->initCovarianceMatrix(config, "measurementNoiseCovariance", R))
     {
         yError() << " wholeBodyDynamics : failed to set measurement noise covariance matrix. ";
