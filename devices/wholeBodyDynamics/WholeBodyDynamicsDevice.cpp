@@ -2239,7 +2239,7 @@ void WholeBodyDynamicsDevice::filterSensorsAndRemoveSensorOffsets()
         measurement.resize(estimator.model().getNrOfDOFs()*2);
 
         iDynTree::toEigen(measurement).head(estimator.model().getNrOfDOFs()) = iDynTree::toEigen(jointPos);
-        iDynTree::toEigen(measurement).tail(estimator.model().getNrOfDOFs()) = iDynTree::toEigen(jointVelKF);
+        iDynTree::toEigen(measurement).tail(estimator.model().getNrOfDOFs()) = iDynTree::toEigen(jointVel);
 
         if (!filters.jntVelAccKFFilter->kfPredict())
         {
