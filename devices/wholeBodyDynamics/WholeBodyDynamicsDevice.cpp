@@ -2233,7 +2233,7 @@ void WholeBodyDynamicsDevice::filterSensorsAndRemoveSensorOffsets()
     if( settings.estimateJointVelocityAcceleration )
     {
         iDynTree::VectorDynSize kfState;
-        kfState.resize(estimator.model().getNrOfDOFs());
+        kfState.resize(estimator.model().getNrOfDOFs()*3);
 
         iDynTree::VectorDynSize measurement;
         measurement.resize(estimator.model().getNrOfDOFs()*2);
