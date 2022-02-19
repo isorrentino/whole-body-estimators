@@ -332,8 +332,15 @@ bool WholeBodyDynamicsDevice::openEstimator(os::Searchable& config)
     }
 
     ok = estimator.loadModelAndSensorsFromFileWithSpecifiedDOFs(modelFileFullPath,estimationJointNames);
+    if( !ok )
+    {
+        yInfo() << "wholeBodyDynamics : impossible to create ExtWrenchesAndJointTorquesEstimator from file "
+                 << modelFileName << " ( full path: " << modelFileFullPath << " ) ";
+        return false;
+    }
+
     // TODELETE
-    //estimator_dummy.loadModelAndSensorsFromFileWithSpecifiedDOFs(modelFileFullPath,estimationJointNames);
+    ok = estimator_dummy.loadModelAndSensorsFromFileWithSpecifiedDOFs(modelFileFullPath,estimationJointNames);
     if( !ok )
     {
         yInfo() << "wholeBodyDynamics : impossible to create ExtWrenchesAndJointTorquesEstimator from file "
@@ -854,6 +861,15 @@ void WholeBodyDynamicsDevice::resizeBuffers()
     this->estimatedJointTorques.resize(estimator.model());
     this->estimatedJointTorquesYARP.resize(this->estimatedJointTorques.size(),0.0);
     this->estimateExternalContactWrenches.resize(estimator.model());
+
+    // TODELETE
+    this->zeroAcc.resize(estimator.model());
+    this->jointVelKF.resize(estimator.model());
+    this->jointAccKF.resize(estimator.model());
+    this->zeroAccTorque.resize(estimator.model());
+    this->zeroAcc.zero();
+    this->estimateExternalContactWrenches_dummy.resize(estimator_dummy.model());
+    this->estimatedJointTorques_dummy.resize(estimator.model());
 
     // Resize F/T stuff
     size_t nrOfFTSensors = estimator.sensors().getNrOfSensors(iDynTree::SIX_AXIS_FORCE_TORQUE);
@@ -2133,8 +2149,8 @@ void WholeBodyDynamicsDevice::readSensors()
     // At the moment we are assuming that all joints are revolute
     if( settings.useJointVelocity )
     {
-        if ( !settings.estimateJointVelocityAcceleration )
-        {
+//        if ( !settings.estimateJointVelocityAcceleration )
+//        {
             ok = remappedControlBoardInterfaces.encs->getEncoderSpeeds(jointVel.data());
             sensorReadCorrectly = sensorReadCorrectly && ok;
             if( !ok )
@@ -2144,7 +2160,7 @@ void WholeBodyDynamicsDevice::readSensors()
 
             // Convert from degrees (used on wire by YARP) to radians (used by iDynTree)
             convertVectorFromDegreesToRadians(jointVel);
-        }
+//        }
     }
     else
     {
@@ -2153,8 +2169,8 @@ void WholeBodyDynamicsDevice::readSensors()
 
     if( settings.useJointAcceleration )
     {
-        if ( !settings.estimateJointVelocityAcceleration )
-        {
+//        if ( !settings.estimateJointVelocityAcceleration )
+//        {
             ok = remappedControlBoardInterfaces.encs->getEncoderAccelerations(jointAcc.data());
             sensorReadCorrectly = sensorReadCorrectly && ok;
             if( !ok )
@@ -2164,7 +2180,7 @@ void WholeBodyDynamicsDevice::readSensors()
 
             // Convert from degrees (used on wire by YARP) to radians (used by iDynTree)
             convertVectorFromDegreesToRadians(jointAcc);
-        }
+//        }
     }
     else
     {
@@ -2223,7 +2239,7 @@ void WholeBodyDynamicsDevice::filterSensorsAndRemoveSensorOffsets()
         measurement.resize(estimator.model().getNrOfDOFs()*2);
 
         iDynTree::toEigen(measurement).head(estimator.model().getNrOfDOFs()) = iDynTree::toEigen(jointPos);
-        iDynTree::toEigen(measurement).tail(estimator.model().getNrOfDOFs()) = iDynTree::toEigen(jointVel);
+        iDynTree::toEigen(measurement).tail(estimator.model().getNrOfDOFs()) = iDynTree::toEigen(jointVelKF);
 
         if (!filters.jntVelAccKFFilter->kfPredict())
         {
@@ -2244,16 +2260,16 @@ void WholeBodyDynamicsDevice::filterSensorsAndRemoveSensorOffsets()
 
         if( settings.useJointVelocity )
         {
-            iDynTree::toEigen(jointVel) = iDynTree::toEigen(kfState).segment(estimator.model().getNrOfDOFs(),estimator.model().getNrOfDOFs());
+            iDynTree::toEigen(jointVelKF) = iDynTree::toEigen(kfState).segment(estimator.model().getNrOfDOFs(),estimator.model().getNrOfDOFs());
         }
 
         if( settings.useJointAcceleration )
         {
-            iDynTree::toEigen(jointAcc) = iDynTree::toEigen(kfState).tail(estimator.model().getNrOfDOFs());
+            iDynTree::toEigen(jointAccKF) = iDynTree::toEigen(kfState).tail(estimator.model().getNrOfDOFs());
         }
     }
-    else
-    {
+//    else
+//    {
         // Filter joint vel
         if( settings.useJointVelocity )
         {
@@ -2273,7 +2289,7 @@ void WholeBodyDynamicsDevice::filterSensorsAndRemoveSensorOffsets()
 
             iDynTree::toiDynTree(outputJointAcc,jointAcc);
         }
-    }
+//    }
 
     // Filter IMU Sensor
     if( settings.kinematicSource == IMU )
@@ -2303,8 +2319,20 @@ void WholeBodyDynamicsDevice::updateKinematics()
         // Hardcode for the meanwhile
         iDynTree::FrameIndex imuFrameIndex = estimator.model().getFrameIndex(settings.imuFrameName);
 
-        estimator.updateKinematicsFromFloatingBase(jointPos,jointVel,jointAcc,imuFrameIndex,
-                                                   filteredIMUMeasurements.linProperAcc,filteredIMUMeasurements.angularVel,filteredIMUMeasurements.angularAcc);
+        if(settings.estimateJointVelocityAcceleration)
+        {
+            estimator.updateKinematicsFromFloatingBase(jointPos,jointVelKF,jointAccKF,imuFrameIndex,
+                                                       filteredIMUMeasurements.linProperAcc,filteredIMUMeasurements.angularVel,filteredIMUMeasurements.angularAcc);
+        }
+        else
+        {
+            estimator.updateKinematicsFromFloatingBase(jointPos,jointVel,jointAcc,imuFrameIndex,
+                                                       filteredIMUMeasurements.linProperAcc,filteredIMUMeasurements.angularVel,filteredIMUMeasurements.angularAcc);
+        }
+
+        // TODELETE
+        estimator_dummy.updateKinematicsFromFloatingBase(jointPos,jointVel,zeroAcc,imuFrameIndex,
+                                                       filteredIMUMeasurements.linProperAcc,filteredIMUMeasurements.angularVel,filteredIMUMeasurements.angularAcc);
 
         if( m_gravityCompensationEnabled )
         {
@@ -2324,7 +2352,17 @@ void WholeBodyDynamicsDevice::updateKinematics()
         gravity(1) = settings.fixedFrameGravity.y;
         gravity(2) = settings.fixedFrameGravity.z;
 
-        estimator.updateKinematicsFromFixedBase(jointPos,jointVel,jointAcc,fixedFrameIndex,gravity);
+        if( settings.estimateJointVelocityAcceleration )
+        {
+            estimator.updateKinematicsFromFixedBase(jointPos,jointVelKF,jointAccKF,fixedFrameIndex,gravity);
+        }
+        else
+        {
+            estimator.updateKinematicsFromFixedBase(jointPos,jointVel,jointAcc,fixedFrameIndex,gravity);
+        }
+
+        // TODELETE
+        estimator_dummy.updateKinematicsFromFixedBase(jointPos,jointVel,zeroAcc,fixedFrameIndex,gravity);
 
         if( m_gravityCompensationEnabled )
         {
@@ -2519,6 +2557,12 @@ void WholeBodyDynamicsDevice::computeCalibration()
                                                        calibrationBuffers.predictedExternalContactWrenchesForCalibration,
                                                        calibrationBuffers.predictedJointTorquesForCalibration);
 
+        // TODELETE
+        estimator_dummy.computeExpectedFTSensorsMeasurements(calibrationBuffers.assumedContactLocationsForCalibration,
+                                                       calibrationBuffers.predictedSensorMeasurementsForCalibration,
+                                                       calibrationBuffers.predictedExternalContactWrenchesForCalibration,
+                                                       calibrationBuffers.predictedJointTorquesForCalibration);
+
         // The kinematics information was already set by the readSensorsAndUpdateKinematics method, just compute the offset and add to the buffer
         for(size_t ft = 0; ft < ftSensors.size(); ft++)
         {
@@ -2573,6 +2617,10 @@ void WholeBodyDynamicsDevice::computeExternalForcesAndJointTorques()
     //This is receiving contact location but no wrench information from the contacts TODO: integrate dynContact info
     estimationWentWell = estimator.estimateExtWrenchesAndJointTorques(measuredContactLocations,filteredSensorMeasurements,
                                                                        estimateExternalContactWrenches,estimatedJointTorques);
+
+    // TODELETE
+    estimationWentWell_dummy = estimator_dummy.estimateExtWrenchesAndJointTorques(measuredContactLocations,filteredSensorMeasurements,
+                                                                       estimateExternalContactWrenches_dummy,estimatedJointTorques_dummy);
 }
 
 void WholeBodyDynamicsDevice::publishEstimatedQuantities()
@@ -2713,7 +2761,10 @@ void WholeBodyDynamicsDevice::publishExternalWrenches()
         // Update kinDynComp model
         iDynTree::Vector3 dummyGravity;
         dummyGravity.zero();
-        this->kinDynComp.setRobotState(this->jointPos,this->jointVel,dummyGravity);
+        if ( settings.estimateJointVelocityAcceleration )
+            this->kinDynComp.setRobotState(this->jointPos,this->jointVelKF,dummyGravity);
+        else
+            this->kinDynComp.setRobotState(this->jointPos,this->jointVel,dummyGravity);
     }
 
     if (enablePublishNetExternalWrenches || this->outputWrenchPorts.size() > 0)
@@ -2833,8 +2884,12 @@ void WholeBodyDynamicsDevice::run()
 
         auto & data = portLog.prepare();
         data.vectors.clear();
+        data.vectors["wbd::kf::velocityKF"].assign(jointVelKF.data(), jointVelKF.data() + jointVelKF.size());
         data.vectors["wbd::kf::velocity"].assign(jointVel.data(), jointVel.data() + jointVel.size());
         data.vectors["wbd::kf::acceleration"].assign(jointAcc.data(), jointAcc.data() + jointAcc.size());
+        data.vectors["wbd::kf::accelerationKF"].assign(jointAccKF.data(), jointAccKF.data() + jointAccKF.size());
+        data.vectors["wbd::torque"].assign(estimatedJointTorques.data(), estimatedJointTorques.data() + estimatedJointTorques.size());
+        data.vectors["wbd::torqueAccZero"].assign(estimatedJointTorques_dummy.data(), estimatedJointTorques_dummy.data() + estimatedJointTorques_dummy.size());
         portLog.write();
     }
 }
