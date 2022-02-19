@@ -417,6 +417,7 @@ private:
     iDynTree::JointDOFsDoubleArray jointVel_Enc;
     iDynTree::JointDOFsDoubleArray zeroAcc;
     iDynTree::JointDOFsDoubleArray zeroAccTorque;
+    iDynTree::JointDOFsDoubleArray jointPosKF;
     iDynTree::JointDOFsDoubleArray jointVelKF;
     iDynTree::JointDOFsDoubleArray jointAccKF;
 

@@ -864,6 +864,7 @@ void WholeBodyDynamicsDevice::resizeBuffers()
 
     // TODELETE
     this->zeroAcc.resize(estimator.model());
+    this->jointPosKF.resize(estimator.model());
     this->jointVelKF.resize(estimator.model());
     this->jointAccKF.resize(estimator.model());
     this->zeroAccTorque.resize(estimator.model());
@@ -2230,8 +2231,32 @@ void WholeBodyDynamicsDevice::filterSensorsAndRemoveSensorOffsets()
     }
 
     // Estimate joint velocity and acceleration
-    if( settings.estimateJointVelocityAcceleration )
-    {
+//    if( !settings.estimateJointVelocityAcceleration )
+//    {
+
+        // Filter joint vel
+        if( settings.useJointVelocity )
+        {
+            iDynTree::toYarp(jointVel,filters.bufferYarpDofs);
+
+            const yarp::sig::Vector & outputJointVel = filters.jntVelFilter->filt(filters.bufferYarpDofs);
+
+            iDynTree::toiDynTree(outputJointVel,jointVel);
+        }
+
+        // Filter joint acc
+        if( settings.useJointAcceleration )
+        {
+            iDynTree::toYarp(jointAcc,filters.bufferYarpDofs);
+
+            const yarp::sig::Vector & outputJointAcc = filters.jntAccFilter->filt(filters.bufferYarpDofs);
+
+            iDynTree::toiDynTree(outputJointAcc,jointAcc);
+        }
+//    }
+//    else
+//    {
+
         iDynTree::VectorDynSize kfState;
         kfState.resize(estimator.model().getNrOfDOFs()*3);
 
@@ -2258,6 +2283,8 @@ void WholeBodyDynamicsDevice::filterSensorsAndRemoveSensorOffsets()
 
         filters.jntVelAccKFFilter->kfGetStates(kfState);
 
+        iDynTree::toEigen(jointPosKF) = iDynTree::toEigen(kfState).head(estimator.model().getNrOfDOFs());
+
         if( settings.useJointVelocity )
         {
             iDynTree::toEigen(jointVelKF) = iDynTree::toEigen(kfState).segment(estimator.model().getNrOfDOFs(),estimator.model().getNrOfDOFs());
@@ -2266,28 +2293,6 @@ void WholeBodyDynamicsDevice::filterSensorsAndRemoveSensorOffsets()
         if( settings.useJointAcceleration )
         {
             iDynTree::toEigen(jointAccKF) = iDynTree::toEigen(kfState).tail(estimator.model().getNrOfDOFs());
-        }
-    }
-//    else
-//    {
-        // Filter joint vel
-        if( settings.useJointVelocity )
-        {
-            iDynTree::toYarp(jointVel,filters.bufferYarpDofs);
-
-            const yarp::sig::Vector & outputJointVel = filters.jntVelFilter->filt(filters.bufferYarpDofs);
-
-            iDynTree::toiDynTree(outputJointVel,jointVel);
-        }
-
-        // Filter joint acc
-        if( settings.useJointAcceleration )
-        {
-            iDynTree::toYarp(jointAcc,filters.bufferYarpDofs);
-
-            const yarp::sig::Vector & outputJointAcc = filters.jntAccFilter->filt(filters.bufferYarpDofs);
-
-            iDynTree::toiDynTree(outputJointAcc,jointAcc);
         }
 //    }
 
@@ -2884,6 +2889,8 @@ void WholeBodyDynamicsDevice::run()
 
         auto & data = portLog.prepare();
         data.vectors.clear();
+        data.vectors["wbd::kf::positionKF"].assign(jointPosKF.data(), jointPosKF.data() + jointPosKF.size());
+        data.vectors["wbd::kf::position"].assign(jointPos.data(), jointPos.data() + jointPos.size());
         data.vectors["wbd::kf::velocityKF"].assign(jointVelKF.data(), jointVelKF.data() + jointVelKF.size());
         data.vectors["wbd::kf::velocity"].assign(jointVel.data(), jointVel.data() + jointVel.size());
         data.vectors["wbd::kf::acceleration"].assign(jointAcc.data(), jointAcc.data() + jointAcc.size());
