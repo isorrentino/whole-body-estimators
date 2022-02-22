@@ -165,6 +165,9 @@ private:
      */
     bool estimationWentWell;
 
+    // TODELETE
+        bool estimationWentWell_dummy;
+
     /**
      * Flag set to false initially, then to true as soon as a valid offset is available
      * (so torque estimation can start to be broadcasted).
@@ -381,6 +384,9 @@ private:
      */
     iDynTree::ExtWrenchesAndJointTorquesEstimator estimator;
 
+    // TODELETE
+        iDynTree::ExtWrenchesAndJointTorquesEstimator estimator_dummy;
+
     /**
      * Buffers related methods
      */
@@ -406,6 +412,11 @@ private:
     iDynTree::JointDOFsDoubleArray jointVelKF;
     iDynTree::JointDOFsDoubleArray jointAccKF;
 
+    // TODELETE
+        iDynTree::JointDOFsDoubleArray jointVel_Enc;
+        iDynTree::JointDOFsDoubleArray zeroAcc;
+        iDynTree::JointDOFsDoubleArray zeroAccTorque;
+
     /***
      * Buffer for raw sensors measurements.
      */
@@ -426,6 +437,10 @@ private:
     iDynTree::LinkUnknownWrenchContacts measuredContactLocations;
     iDynTree::JointDOFsDoubleArray estimatedJointTorques;
     iDynTree::LinkContactWrenches  estimateExternalContactWrenches;
+
+    // TODELETE
+       iDynTree::JointDOFsDoubleArray estimatedJointTorques_dummy;
+       iDynTree::LinkContactWrenches  estimateExternalContactWrenches_dummy;
 
     /**
      * FT processing data structures

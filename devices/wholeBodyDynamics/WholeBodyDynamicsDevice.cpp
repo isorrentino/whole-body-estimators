@@ -339,6 +339,15 @@ bool WholeBodyDynamicsDevice::openEstimator(os::Searchable& config)
         return false;
     }
 
+    // TODELETE
+       ok = estimator_dummy.loadModelAndSensorsFromFileWithSpecifiedDOFs(modelFileFullPath,estimationJointNames);
+       if( !ok )
+       {
+           yInfo() << "wholeBodyDynamics : impossible to create ExtWrenchesAndJointTorquesEstimator from file "
+                    << modelFileName << " ( full path: " << modelFileFullPath << " ) ";
+           return false;
+       }
+
     if( estimator.sensors().getNrOfSensors(iDynTree::SIX_AXIS_FORCE_TORQUE) == 0 )
     {
         yWarning() << "wholeBodyDynamics : the loaded model has 0 FT sensors, so the estimation will use just the model.";
@@ -857,6 +866,14 @@ void WholeBodyDynamicsDevice::resizeBuffers()
     this->jointAccKF.resize(estimator.model());
     jointVelKF.zero();
     jointAccKF.zero();
+
+    // TODELETE
+        this->zeroAcc.resize(estimator.model());
+        this->zeroAccTorque.resize(estimator.model());
+        this->zeroAcc.zero();
+        this->zeroAccTorque.zero();
+        this->estimateExternalContactWrenches_dummy.resize(estimator_dummy.model());
+        this->estimatedJointTorques_dummy.resize(estimator.model());
 
     // Resize F/T stuff
     size_t nrOfFTSensors = estimator.sensors().getNrOfSensors(iDynTree::SIX_AXIS_FORCE_TORQUE);
@@ -2310,6 +2327,11 @@ void WholeBodyDynamicsDevice::updateKinematics()
                                                        filteredIMUMeasurements.linProperAcc,filteredIMUMeasurements.angularVel,filteredIMUMeasurements.angularAcc);
         }
 
+        // TODELETE
+                estimator_dummy.updateKinematicsFromFloatingBase(jointPos,jointVel,zeroAcc,imuFrameIndex,
+                                                               filteredIMUMeasurements.linProperAcc,filteredIMUMeasurements.angularVel,filteredIMUMeasurements.angularAcc);
+
+
         if( m_gravityCompensationEnabled )
         {
             m_gravCompHelper.updateKinematicsFromProperAcceleration(jointPos,
@@ -2336,6 +2358,10 @@ void WholeBodyDynamicsDevice::updateKinematics()
         {
             estimator.updateKinematicsFromFixedBase(jointPos,jointVel,jointAcc,fixedFrameIndex,gravity);
         }
+
+        // TODELETE
+                estimator_dummy.updateKinematicsFromFixedBase(jointPos,jointVel,zeroAcc,fixedFrameIndex,gravity);
+
 
         if( m_gravityCompensationEnabled )
         {
@@ -2530,6 +2556,13 @@ void WholeBodyDynamicsDevice::computeCalibration()
                                                        calibrationBuffers.predictedExternalContactWrenchesForCalibration,
                                                        calibrationBuffers.predictedJointTorquesForCalibration);
 
+        // TODELETE
+               estimator_dummy.computeExpectedFTSensorsMeasurements(calibrationBuffers.assumedContactLocationsForCalibration,
+                                                              calibrationBuffers.predictedSensorMeasurementsForCalibration,
+                                                              calibrationBuffers.predictedExternalContactWrenchesForCalibration,
+                                                              calibrationBuffers.predictedJointTorquesForCalibration);
+
+
         // The kinematics information was already set by the readSensorsAndUpdateKinematics method, just compute the offset and add to the buffer
         for(size_t ft = 0; ft < ftSensors.size(); ft++)
         {
@@ -2584,6 +2617,11 @@ void WholeBodyDynamicsDevice::computeExternalForcesAndJointTorques()
     //This is receiving contact location but no wrench information from the contacts TODO: integrate dynContact info
     estimationWentWell = estimator.estimateExtWrenchesAndJointTorques(measuredContactLocations,filteredSensorMeasurements,
                                                                        estimateExternalContactWrenches,estimatedJointTorques);
+
+    // TODELETE
+       estimationWentWell_dummy = estimator_dummy.estimateExtWrenchesAndJointTorques(measuredContactLocations,filteredSensorMeasurements,
+                                                                          estimateExternalContactWrenches_dummy,estimatedJointTorques_dummy);
+
 }
 
 void WholeBodyDynamicsDevice::publishEstimatedQuantities()
