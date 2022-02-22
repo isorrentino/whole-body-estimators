@@ -36,6 +36,9 @@
 #include <mutex>
 
 
+// TODELETE
+#include <BipedalLocomotion/YarpUtilities/VectorsCollection.h>
+
 namespace yarp {
 namespace dev {
 
@@ -143,6 +146,9 @@ class WholeBodyDynamicsDevice :  public yarp::dev::DeviceDriver,
     };
 
 private:
+    // TODELETE
+    yarp::os::BufferedPort<BipedalLocomotion::YarpUtilities::VectorsCollection> portLog;
+
     /**
      * Port prefix used for all the ports opened by wholeBodyDynamics.
      */

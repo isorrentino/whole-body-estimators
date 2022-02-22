@@ -1652,6 +1652,9 @@ bool WholeBodyDynamicsDevice::open(os::Searchable& config)
 
     yDebug() << "wholeBodyDynamics Statistics: Configuration finished. Waiting attachAll to be called.";
 
+    // TODELETE
+    portLog.open("/WBDLogger");
+
     return true;
 }
 
@@ -2882,6 +2885,19 @@ void WholeBodyDynamicsDevice::run()
 
         // Publish estimated quantities
         this->publishEstimatedQuantities();
+
+        // TODELETE
+        auto & data = portLog.prepare();
+        data.vectors.clear();
+        data.vectors["wbd::kf::positionKF"].assign(jointPosKF.data(), jointPosKF.data() + jointPosKF.size());
+        data.vectors["wbd::kf::position"].assign(jointPos.data(), jointPos.data() + jointPos.size());
+        data.vectors["wbd::kf::velocityKF"].assign(jointVelKF.data(), jointVelKF.data() + jointVelKF.size());
+        data.vectors["wbd::kf::velocity"].assign(jointVel.data(), jointVel.data() + jointVel.size());
+        data.vectors["wbd::kf::acceleration"].assign(jointAcc.data(), jointAcc.data() + jointAcc.size());
+        data.vectors["wbd::kf::accelerationKF"].assign(jointAccKF.data(), jointAccKF.data() + jointAccKF.size());
+        data.vectors["wbd::torque"].assign(estimatedJointTorques.data(), estimatedJointTorques.data() + estimatedJointTorques.size());
+        data.vectors["wbd::torqueAccZero"].assign(estimatedJointTorques_dummy.data(), estimatedJointTorques_dummy.data() + estimatedJointTorques_dummy.size());
+        portLog.write();
     }
 }
 
