@@ -1635,6 +1635,9 @@ bool WholeBodyDynamicsDevice::open(os::Searchable& config)
 
     yDebug() << "wholeBodyDynamics Statistics: Configuration finished. Waiting attachAll to be called.";
 
+    // TODELETE
+    portLog.open("/WBDLogger");
+
     return true;
 }
 
@@ -2187,6 +2190,9 @@ void WholeBodyDynamicsDevice::filterSensorsAndRemoveSensorOffsets()
                                   settings.jointVelFilterCutoffInHz,
                                   settings.jointAccFilterCutoffInHz);
 
+    auto & data = portLog.prepare();
+    data.vectors.clear();
+
     // Filter and remove offset fromn F/T sensors
     for(size_t ft=0; ft < estimator.sensors().getNrOfSensors(iDynTree::SIX_AXIS_FORCE_TORQUE); ft++ )
     {
@@ -2201,12 +2207,24 @@ void WholeBodyDynamicsDevice::filterSensorsAndRemoveSensorOffsets()
         // Run the filter
         const yarp::sig::Vector & outputFt = filters.forcetorqueFilters[ft]->filt(filters.bufferYarp6);
 
+        // Stream raw and filtered data
+        std::string sensorName;
+
+        sensorName = estimator.sensors().getSensor(iDynTree::SIX_AXIS_FORCE_TORQUE,ft)->getName();
+
+        // filters.bufferYarp6 --> raw fts
+        // outputFt --> filtered fts
+        data.vectors["fts::"+sensorName+"::raw"].assign(filters.bufferYarp6.data(), filters.bufferYarp6.data() + filters.bufferYarp6.size());
+        data.vectors["fts::"+sensorName+"::filtered"].assign(outputFt.data(), outputFt.data() + outputFt.size());
+
         iDynTree::Wrench filteredFTMeasure;
 
         iDynTree::toiDynTree(outputFt,filteredFTMeasure);
 
         filteredSensorMeasurements.setMeasurement(iDynTree::SIX_AXIS_FORCE_TORQUE,ft,filteredFTMeasure);
     }
+
+    portLog.write();
 
     if( settings.estimateJointVelocityAcceleration )
     {
